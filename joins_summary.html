@@ -1,0 +1,110 @@
+<pre><b>The starting point</b>
+
+  The White House published an interactive map on aliens.gov showing immigration &quot;arrests&quot; as thousands of dots
+  across the country. After WIRED reported on it, the White House quietly <b>scrubbed</b> it — cutting the totals roughly
+  in half and removing dots that named US citizens. We&apos;d already recovered the <b>original, pre-scrub version</b> from
+  the Wayback Machine (captured May 29): 11,873 location dots, 476,547 arrests.
+
+  Separately, we have the <b>Deportation Data Project (DDP)</b> files — the real ICE enforcement records (~713,000
+  arrests, plus detainers and detention histories), obtained through FOIA. This is ground truth.
+
+  The whole session was about one question: <b>can we connect the White House&apos;s map to the real ICE records, and what</b>
+  <b>does that connection tell us?</b>
+
+  <b>The central idea, and the first real decision</b>
+
+  The map is <b>aggregated</b> — each dot is a town, and it only tells you <i>how many</i> were arrested there, <i>which countries</i>
+  they came from (as a list), <i>which charges</i> (as a list), and a <i>date range</i>. That&apos;s useless for matching
+  individuals… except when a dot represents <b>exactly one arrest</b>. Then the list collapses to a single country, a
+  single exact date, a single place.
+
+  <b>Decision:</b> focus on the ~4,300 single-arrest dots. Everything else can&apos;t be tied to a person. That&apos;s where all
+  the leverage is.
+
+  To match a dot to an ICE record, we need fields both sides share. ICE records have a <b>state, a date, and a </b>
+  <b>citizenship country</b> — but no city. So the join key became <b>state + date + country</b>. Match a dot, and you&apos;ve turned
+  an anonymous dot into a specific ICE person, which unlocks their whole detention history.
+
+  About <b>800 dots matched exactly one ICE person</b>. The rest matched 2–5 or many (common nationalities on busy days),
+  or nothing.
+
+  <b>Four angles, and what each was for</b>
+
+  We pursued four ways to get more out of this:
+
+  - <b>D — Geography.</b> The hope: ICE records have location hints (office codes, landmarks) that could break ties when
+  several people match the same state/date/country. <b>What we learned:</b> ICE codes each arrest to a <i>regional office</i>,
+  not the actual town — so location is ~130 km fuzzy and mostly couldn&apos;t pin individuals. Only when a landmark
+  literally spells out the town (&quot;Firebaugh Police Department&quot;) is it precise. <b>Decision:</b> use geography only where
+  it&apos;s exact, not as a blunt filter.
+  - <b>F+G — Charges and gangs.</b> The White House lists charge categories; ICE lists conviction charges with the same
+  coding system. The hope: use charges to break ties. <b>What we learned:</b> they agree only ~76% of the time (the map
+  shows the <i>arrest</i> charge; ICE records the <i>most serious conviction</i> — different things). <b>Decision:</b> treat charges as
+  corroboration, never as proof.
+  - <b>L — US citizens.</b> The map named 715 dots with US-born arrestees. ICE&apos;s enforcement data is, by definition,
+  <b>non-citizens only</b>. <b>What we found:</b> there are <b>zero</b> US citizens anywhere in the ICE arrests, detainers, or
+  detention data. So those 715 dots <b>cannot be ICE deportation arrests</b> — strong evidence the map mixed in something
+  else (non-immigration arrests).
+  - <b>I — The big-picture comparison.</b> Instead of person-by-person, compare totals. <b>What we found:</b> the pre-scrub
+  map&apos;s state-by-state numbers track ICE&apos;s real arrest numbers almost perfectly (correlation 0.996), at a flat
+  ~1.3× ratio everywhere — which is just the map covering ~3 more months than the ICE data. <b>Meaning:</b> the original
+  map <i>was</i> an honest reflection of ICE arrests. The scrub then cut it nearly in half, pushing it <i>below</i> documented
+  reality — which contradicts the White House&apos;s claim that it was only removing &quot;non-immigration&quot; arrests.
+
+  The most important findings (L and I) don&apos;t even depend on the fragile person-matching.
+
+  <b>The discipline that ran through everything</b>
+
+  The recurring decision was: <b>never trust a matching signal until it&apos;s validated against known-good matches.</b> Every
+  shortcut — using the office region, using charges, using county — was tested against the ~800 confirmed matches
+  first. Each time, if it was too unreliable (region was 67% right, charges 76%, county 67%), we <b>refused to use </b>
+  <b>it to assert a match</b> and instead kept it as a clearly-labeled, lower-confidence tier. That&apos;s why the final
+  crosswalk is <i>tiered</i> <i>by</i> <i>confidence</i> rather than a single flat list.
+
+  <b>The skepticism test</b>
+
+  You asked the right hard question: <b>what if the map is fabricated or noise-injected, and the matches are just </b>
+  <b>coincidences that happen to fit?</b>
+
+  We tested it directly: shuffle the dates and re-run the matching 2,000 times. If the map were fake, the real
+  dates would match no better than random shuffles. <b>Result:</b> the real matches beat random by ~50 standard
+  deviations. The map is unambiguously real data.
+
+  <b>But</b> the test also revealed the honest caveat: random shuffling still produces ~440 &quot;unique&quot; matches by chance,
+  because rare combinations (one Angolan in Maine) match easily either way. So we computed a <b>per-dot coincidence </b>
+  <b>probability</b> and labeled each match accordingly — rare-nationality matches are bedrock; &quot;Mexico in Texas&quot; matches
+  are coincidence-prone. About 200 are essentially certain; ~640 of 800 are genuine signal.
+
+  <b>The</b> <b>review,</b> <b>and</b> <b>the</b> <b>fixes</b> <b>you</b> <b>prompted</b>
+
+  A correctness pass (and your sharp catches) surfaced three real issues:
+
+  1. <b>Territories</b> — Guam/Virgin Islands dots were being silently dropped. Fixed (+15).
+  2. <b>County matching</b> — added to break more ties, but validation showed it&apos;s only ~67% reliable, so we kept it in a
+  <b>separate, clearly-weaker tier</b> rather than mixing it with the solid matches.
+  3. <b>Wrong state labels</b> — your &quot;LaGrange, IL is in Cook County&quot; catch exposed that ~333 dots (7.7%) have a <b>typo&apos;d </b>
+  <b>state</b> in the text (the coordinates are right, the label is wrong: &quot;Des Plaines, IA&quot; is really in Illinois).
+  These had been matched against the wrong state&apos;s ICE records. <b>Decision:</b> trust the <i>coordinates</i>, not the text
+  label, for state. This removed dozens of bogus matches — the count went <i>down</i>, which is the correct direction.
+
+  Then two more judgment calls:
+  - <b>The </b><font color="#B1B9F9"><b>contested</b></font><b> flag (done):</b> when two dots both claim the same single ICE person (physically impossible — at
+  most one is right), flag both for review instead of silently trusting them. Five such collisions exist; now
+  they&apos;re visible.
+  - <b>A &quot;border-aware&quot; state rule (rejected):</b> it would have fixed one border-town misflip (Conklin, NY) but
+  re-broken ~5 legitimate typo corrections. <b>Decision:</b> not worth it — the contested flag already surfaces the one
+  bad case.
+
+  <b>Where it landed</b>
+
+  A confidence-tiered crosswalk of <b>~1,180 White House dots tied to specific ICE individuals</b>, honestly labeled from
+  &quot;near-certain&quot; down to &quot;lead only,&quot; with coincidence-prone and contested cases flagged. And, more durably,
+  three conclusions that don&apos;t rely on any single match:
+
+  1. The map is <b>real</b> <b>ICE</b> <b>data</b>, not fabricated or synthetic.
+  2. The <b>scrubbed version undercounts</b> real ICE arrests by ~46%, contradicting the stated reason for the scrub.
+  3. The map <b>included US citizens</b> who provably aren&apos;t in ICE&apos;s enforcement records at all.
+
+  The throughline in every decision: <b>prefer the conclusion the data can actually support, validate before </b>
+  <b>trusting, and label uncertainty honestly rather than inflate the match count.</b>
+</pre>
